@@ -1,0 +1,21 @@
+# Date for filtered GTFS files
+date: 2023-03-20
+
+# Specify the list of GTFS files to process
+gtfs_filepath: C:/Users/UKJMH006/Documents/TfN/GTFSmanaging/tfn_final/inputs/itm_yorkshire_gtfs/
+
+output_file: C:/Users/UKJMH006/Documents/TfN/GTFSmanaging/tfn_final/ERaH/outputs_ERaH.csv
+output_name: C:/Users/UKJMH006/Documents/TfN/GTFSmanaging/tfn_final/ERaH/
+# Options affecting the routing
+granularity: MSOA
+period:
+  - AM
+  - IP
+  - PM
+LAD:
+  - County Durham
+  - Gateshead
+  - Newcastle upon Tyne
+  - Sunderland
+OD_zones: C:/Users/UKJMH006/Documents/TfN/GTFSmanaging/tfn_final/inputs/ERaH_input.csv
+shapefile: C:\Users\UKJMH006\Documents\TfN\GTFSmanaging\data\MSOA_(Dec_2021)_Boundaries_Full_Extent_(BFE)_EW/MSOA_(Dec_2021)_Boundaries_Full_Extent_(BFE)_EW.shp

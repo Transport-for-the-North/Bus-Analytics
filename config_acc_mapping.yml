@@ -1,0 +1,25 @@
+output_name: C:/Users/UKJMH006/Documents/TfN/GTFSmanaging/tfn_final/ERaH/
+
+# Options affecting the routing
+zone_type: MSOA
+period:
+  - AM
+  - IP
+  - PM
+
+LAD:
+  - East Riding of Yorkshire
+  - Kingston upon Hull
+shapefile: C:\Users\UKJMH006\Documents\TfN\GTFSmanaging\data\MSOA_(Dec_2021)_Boundaries_Full_Extent_(BFE)_EW/MSOA_(Dec_2021)_Boundaries_Full_Extent_(BFE)_EW.shp
+shape_zone_name: "MSOA21NM"
+accessibility_data_AM: C:/Users/UKJMH006/Documents/TfN/GTFSmanaging/tfn_final/inputs/ERaH_accessibility/AM/BUS_WALK_costs_20230320T0900-metrics-Opportunities_MSOA2021_v01.csv
+accessibility_data_IP: C:/Users/UKJMH006/Documents/TfN/GTFSmanaging/tfn_final/inputs/ERaH_accessibility/IP/BUS_WALK_costs_20230320T1400-metrics-Opportunities_MSOA2021_v01.csv
+accessibility_data_PM: C:/Users/UKJMH006/Documents/TfN/GTFSmanaging/tfn_final/inputs/ERaH_accessibility/PM/BUS_WALK_costs_20230320T1900-metrics-Opportunities_MSOA2021_v01.csv
+zone_name: origin
+zone_code: origin_id
+metric_for_plotting: Total
+
+pop_data_file: C:/Users/UKJMH006/Documents/TfN/GTFSmanaging/data/census2021-ts007/census2021-ts007-msoa.csv
+pop_zone_name: geography
+pop_zone_code: geography code
+demographic: Total_pop
