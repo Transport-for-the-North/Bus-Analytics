@@ -1,0 +1,40 @@
+# Date for filtered GTFS files
+date: 2023-12-20
+
+# Specify the extents to clip the graph to. These are for Cheshire West & Chester
+# Alternatively, you can provide a named extent (as defined in otp4gb/extents.yml) as a command line -b/--bounds option
+extents:
+  max_lon: -2.2119
+  min_lon: -2.2661
+  max_lat: 53.4916
+  min_lat: 53.4694
+
+# Specify the osm file to use
+osm_file: great-britain-latest.osm.pbf
+
+# Specify the list of GTFS files to process
+gtfs_files:
+  - GTFS_20231218_15-57-34.zip
+
+# Options affecting the routing
+travel_time: 2023-12-20T08:30:00
+buffer_size: 100
+modes:
+  - - BUS
+    - WALK
+  - - TRANSIT
+    - WALK
+centroids: Manc_city_centre_lsoa.csv
+# Factors applied to the respective time / distance when calculation the generalised cost
+# times in the generalised cost calculation are in minutes and distances are km
+generalised_cost_factors:
+  wait_time: 1
+  transfer_number: 1
+  walk_time: 1
+  transit_time: 1
+  walk_distance: 1
+  transit_distance: 1
+# Method used for getting the average generalised cost from all itineraries produced by OTP
+iterinary_aggregation_method: mean
+max_walk_distance: 500
+number_of_threads: 10

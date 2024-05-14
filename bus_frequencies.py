@@ -5,39 +5,79 @@ import geopandas as gpd
 import datetime
 from shapely.geometry import LineString
 import warnings
+import sys
 
 warnings.filterwarnings("ignore")
 import math
 import re
 import yaml
-import pandas_bokeh
-import bokeh.palettes
-from bokeh.palettes import all_palettes
 
 
-pd.set_option("plotting.backend", "pandas_bokeh")
-with open("config.yml") as f:
-    config = yaml.load(f, Loader=yaml.FullLoader)
+def read_config(
+    filepath="C:/Users/UKJMH006/Documents/TfN/Stage-2/Bus-Analytics/config_new.yml",
+):
+    """Reads and parses a configuration file named 'config.yml' containing user defined setting for this script.
+
+    Raises:
+        ValueError: If any of the config keys are missing or contain missing values.
+        FileNotFoundError: If the 'config.yml' file in not in the working folder
+        yaml.YAMLError: If there is an error while parsing the YAML content.
+
+    Returns:
+        dict: A dictionary containing the config settings
+
+    The function reads the 'config.yml' file and ensures that it contains the following required keys:
+    - 'granularity': The zone system used to identify origin and destination zones. LSOA or MSOA.
+    - 'OD_zones': Filepaths to a .csv file which contains two columns. One for the origin zones and one for destination zones.
+    - 'gtfs_filepath': The value specifying the full filepath to the GTFS folder.
+    - 'output_file': The value specifying the fullfilepath name output file path.
+
+    If any of these keys are missing or have empty values, a ValueError is raised. If the 'config.yml'
+    file is not found or there is an error in parsing the YAML content, appropriate exceptions are raised.
+    Once the configuration is successfully read and validated, it is returned as a dictionary.
+
+    """
+    try:
+        with open(
+            "C:/Users/UKJMH006/Documents/TfN/Stage-2/Bus-Analytics/config_new.yml"
+        ) as f:
+            config = yaml.load(f, Loader=yaml.FullLoader)
+            required_keys = [
+                "granularity",
+                "OD_zones",
+                "file_gtfs",
+                "output_file",
+            ]
+            for key in required_keys:
+                if key not in config or config[key] is None:
+                    raise ValueError(
+                        f"Missing of empty value for required config key: {key}"
+                    )
+        return config
+    except FileNotFoundError:
+        print("Error: the 'config.yml' file was not found.")
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        print(f"Error reading 'config.yml': {e}")
+        sys.exit(1)
 
 
-def read_zones_shapefile(granularity):
-    if granularity == "LSOA":
-        # Get Census Boundaries as GeoPandas
-        shapefile = config["shapefile"]
-        gdf = gpd.read_file(shapefile)
-        first_row = gpd.read_file(shapefile, rows=1)
-        gdf = pd.concat([first_row, gdf]).reset_index(drop=True)
-        gdf = gdf.set_crs(27700)
-        gdf = gdf.to_crs(4326)
-        gdf = gdf.drop(index=0).reset_index(drop=True)
-    else:
-        shapefile = config["shapefile"]
-        gdf = gpd.read_file(shapefile)
-        first_row = gpd.read_file(shapefile, rows=1)
-        gdf = pd.concat([first_row, gdf]).reset_index(drop=True)
-        gdf = gdf.set_crs(27700)
-        gdf = gdf.to_crs(4326)
-        gdf = gdf.drop(index=0).reset_index(drop=True)
+def read_zones_shapefile(shapefile):
+    ######KIND POINTLESS TO DISTINGUISH BETWEEN GRANULARITIES HERE FIX IT#############
+    """Reads in the UK zone shapefile of the granularity specified in the config file.
+
+
+    Returns:
+        GeoDataFrame: GeoDataFrame of the zone system specified by the user, ready to be filtered into areas that are of interest. in CRS(4326) (Long/Lat)
+    """
+
+    shapefile = config["shapefile"]
+    gdf = gpd.read_file(shapefile)
+    first_row = gpd.read_file(shapefile, rows=1)
+    gdf = pd.concat([first_row, gdf]).reset_index(drop=True)
+    gdf = gdf.set_crs(27700)
+    gdf = gdf.to_crs(4326)
+    gdf = gdf.drop(index=0).reset_index(drop=True)
     return gdf
 
 
@@ -48,6 +88,7 @@ def trip_selection(s_t_df):
     )
     trips = pd.DataFrame({"trip_id": trips.index, "trip_selection": trips.values})
     od_trips = trips[trips["trip_selection"] == 2].reset_index(drop=True)
+    print(od_trips)
     # trip that go for orig to destination zone at some point in the trip
     # to be imporved to avoid a for loop in future, for the moment is fast enough
     for trip in od_trips["trip_id"]:
@@ -69,90 +110,67 @@ def trip_selection(s_t_df):
 
 
 def combine_tables(stop_times, stops, trips, routes, cutoffs=[0, 7, 10, 16, 19, 24]):
+    """
+    Combine tables containing stop times, stop information, trip information, and route information.
 
-    hours = list(range(25))
-    hours_labels = [str(hours[i]) + ":00" for i in range(len(hours) - 1)]
+    Args:
+    - stop_times (DataFrame): DataFrame containing stop times information.
+    - stops (DataFrame): DataFrame containing stop information.
+    - trips (DataFrame): DataFrame containing trip information.
+    - routes (DataFrame): DataFrame containing route information.
+    - cutoffs (list): List of cutoff times in hours.
 
-    if max(cutoffs) <= 24:
-        stop_times_ok = stop_times.loc[stop_times.departure_time < 24 * 3600]
-        stop_times_fix = stop_times.loc[stop_times.departure_time >= 24 * 3600]
-        stop_times_fix["departure_time"] = [
-            d - 24 * 3600 for d in stop_times_fix.departure_time
-        ]
+    Returns:
+    - stops_trips_times_routes (GeoDataFrame): GeoDataFrame containing combined information from all tables.
+    """
+    # Adjusting departure times exceeding 24 hours
+    stop_times["departure_time"] %= 24 * 3600
 
-        stop_times = stop_times_ok.append(stop_times_fix)
-        labels = []
-        for w in cutoffs:
-            if float(w).is_integer():
-                if len(str(w)) == 1:
-                    l = "0" + str(w) + ":00"
-                else:
-                    l = str(w) + ":00"
-            else:
-                n = math.modf(w)
-                if int(n[1]) == 1:
-                    l = "0" + str(int(n[1])) + ":" + str(int(n[0] * 60))
-                else:
-                    l = str(int(n[1])) + ":" + str(int(n[0] * 60))
-            labels = labels + [l]
-    else:
-        labels = []
-        for w in cutoffs:
-            if float(w).is_integer():
-                if w > 24:
-                    w1 = w - 24
-                    l = str(w1) + ":00"
-                else:
-                    if len(str(w)) == 1:
-                        l = "0" + str(w) + ":00"
-                    else:
-                        l = str(w) + ":00"
-                labels = labels + [l]
-            else:
-                if w > 24:
-                    w1 = w - 24
-                    n = math.modf(w1)
-                    l = str(int(n[1])) + ":" + str(int(n[0] * 60))
-                else:
-                    n = math.modf(w)
-                    if int(n[1]) == 1:
-                        l = "0" + str(int(n[1])) + ":" + str(int(n[0] * 60))
-                    else:
-                        l = str(int(n[1])) + ":" + str(int(n[0] * 60))
-                labels = labels + [l]
+    stop_times["departure_time"] /= 3600
+    stop_times["arrival_time"] /= 3600
 
-    labels = [labels[i] + "-" + labels[i + 1] for i in range(0, len(labels) - 1)]
+    labels = []
+    for w in cutoffs:
+        if float(w).is_integer():
+            label = f"{w:02d}:00"
+        else:
+            hours = int(w)
+            minutes = int((w - hours) * 60)
+            label = f"{hours:02d}:{minutes:02d}"
+        labels.append(label)
 
-    stop_times["departure_time"] = stop_times["departure_time"] / 3600
-    stop_times["arrival_time"] = stop_times["arrival_time"] / 3600
-    # Put each trips in the right period
+    labels = [f"{labels[i]}-{labels[i + 1]}" for i in range(len(labels) - 1)]
+
+    # Put each trip into the right period
     stop_times["period"] = pd.cut(
         stop_times["departure_time"], bins=cutoffs, right=False, labels=labels
     )
-    stop_times = stop_times.loc[~stop_times.period.isnull()]
-    stop_times["period"] = stop_times["period"].astype(str)
+    stop_times = stop_times.dropna(subset=["period"])
+
+    # Cut the hour into bins
+    hours = list(range(25))
+    hours_labels = [f"{h:02d}:00" for h in range(24)]
     stop_times["hour"] = pd.cut(
         stop_times["departure_time"], bins=hours, right=False, labels=hours_labels
     )
-    stop_times["hour"] = stop_times["hour"].astype(str)
 
+    # Merging tables
     trips_times = pd.merge(
         stop_times,
-        trips.loc[:, ["route_id", "trip_id", "shape_id", "trip_headsign"]],
+        trips[["route_id", "trip_id", "shape_id", "trip_headsign"]],
         how="left",
         on="trip_id",
     )
     trips_times_routes = pd.merge(
         trips_times,
-        routes.loc[:, ["route_id", "agency_id", "route_short_name", "route_type"]],
+        routes[["route_id", "agency_id", "route_short_name", "route_type"]],
         how="left",
         on="route_id",
     )
 
     stops_trips_times_routes = pd.merge(
-        stops.loc[:, ["stop_id", "stop_name", "geometry"]],
-        trips_times_routes.loc[
-            :,
+        stops[["stop_id", "stop_name", "geometry"]],
+        trips_times_routes[
             [
                 "trip_id",
                 "arrival_time",
@@ -168,97 +186,78 @@ def combine_tables(stop_times, stops, trips, routes, cutoffs=[0, 7, 10, 16, 19, 
                 "agency_id",
                 "route_short_name",
                 "route_type",
-            ],
+            ]
         ],
         how="left",
-        on=["stop_id"],
+        on="stop_id",
     )
 
+    # Convert to GeoDataFrame
     stops_trips_times_routes = gpd.GeoDataFrame(
         data=stops_trips_times_routes.drop("geometry", axis=1),
         geometry=stops_trips_times_routes.geometry,
     )
 
+    # Rename columns
     stops_trips_times_routes.rename(
         columns={"period": "stop_time_period", "hour": "stop_time_hour"}, inplace=True
     )
-    # stop_frequencies.sort_values(by='mean_headway(period)', ascending=False, inplace=True)
+
     return stops_trips_times_routes
 
 
 def journey_times(stops_trips_times_routes, od_stops, cutoffs=[0, 7, 10, 16, 19, 24]):
-    stop_times = stops_trips_times_routes
-    hours = list(range(25))
-    hours_labels = [str(hours[i]) + ":00" for i in range(len(hours) - 1)]
+    stop_times = stops_trips_times_routes.copy()
+    # Adjusting departure times exceeding 24 hours
     if max(cutoffs) <= 24:
-        stop_times_ok = stop_times.loc[stop_times.departure_time < 24]
-        stop_times_fix = stop_times.loc[stop_times.departure_time >= 24]
-        stop_times_fix["departure_time"] = [
-            d - 24 for d in stop_times_fix.departure_time
-        ]
-
-        stop_times = stop_times_ok.append(stop_times_fix)
-        labels = []
-        for w in cutoffs:
-            if float(w).is_integer():
-                if len(str(w)) == 1:
-                    l = "0" + str(w) + ":00"
-                else:
-                    l = str(w) + ":00"
-            else:
-                n = math.modf(w)
-                if int(n[1]) == 1:
-                    l = "0" + str(int(n[1])) + ":" + str(int(n[0] * 60))
-                else:
-                    l = str(int(n[1])) + ":" + str(int(n[0] * 60))
-            labels = labels + [l]
+        stop_times.loc[stop_times["departure_time"] >= 24, "departure_time"] -= 24
     else:
-        labels = []
-        for w in cutoffs:
-            if float(w).is_integer():
-                if w > 24:
-                    w1 = w - 24
-                    l = str(w1) + ":00"
-                else:
-                    if len(str(w)) == 1:
-                        l = "0" + str(w) + ":00"
-                    else:
-                        l = str(w) + ":00"
-                labels = labels + [l]
-            else:
-                if w > 24:
-                    w1 = w - 24
-                    n = math.modf(w1)
-                    l = str(int(n[1])) + ":" + str(int(n[0] * 60))
-                else:
-                    n = math.modf(w)
-                    if int(n[1]) == 1:
-                        l = "0" + str(int(n[1])) + ":" + str(int(n[0] * 60))
-                    else:
-                        l = str(int(n[1])) + ":" + str(int(n[0] * 60))
-                labels = labels + [l]
+        stop_times["departure_time"] %= 24
 
-    labels = [labels[i] + "-" + labels[i + 1] for i in range(0, len(labels) - 1)]
+    # Creating labels for time periods
+    def format_label(time):
+        hours = int(time)
+        minutes = int((time - hours) * 60)
+        return f"{hours:02d}:{minutes:02d}"
+
+    labels = [format_label(w) for w in cutoffs]
+
+    # Creating time period labels
+    period_labels = [f"{labels[i]}-{labels[i+1]}" for i in range(len(labels) - 1)]
+
+    # Merging stop_times with origin/destination stops
     jt_cals = pd.merge(
-        stop_times, od_stops.loc[:, ["stop_id", "orig/dest"]], how="left", on="stop_id"
+        stop_times, od_stops[["stop_id", "orig/dest"]], how="left", on="stop_id"
     )
     jt_cals["orig/dest"].fillna(0, inplace=True)
+
+    # Filtering origin and destination stops
     jt_orig = jt_cals[jt_cals["orig/dest"] == 1]
     jt_dest = jt_cals[jt_cals["orig/dest"] == 2]
-    jt_start = jt_orig.pivot_table("departure_time", index=["trip_id"], aggfunc="min")
-    jt_end = jt_dest.pivot_table("arrival_time", index=["trip_id"], aggfunc="max")
-    jt = pd.merge(jt_start, jt_end, on=["trip_id"])
+
+    # Calculating start and end times for trips
+    jt_start = jt_orig.groupby("trip_id")["departure_time"].min().reset_index()
+    jt_end = jt_dest.groupby("trip_id")["arrival_time"].max().reset_index()
+
+    # Merging start and end times
+    jt = pd.merge(jt_start, jt_end, on="trip_id")
     jt["jt"] = jt["arrival_time"] - jt["departure_time"]
-    # trip is put into trip_period depending on departure time
+
+    # Assigning time periods to trips
     jt["trip_period"] = pd.cut(
-        jt["departure_time"], bins=cutoffs, right=False, labels=labels
-    )
-    jt = jt.loc[~jt.trip_period.isnull()]
-    jt["trip_period"] = jt["trip_period"].astype(str)
+        jt["departure_time"], bins=cutoffs, right=False, labels=period_labels
+    ).astype(str)
+    jt = jt.dropna(subset=["trip_period"])
+
+    # Assigning hour labels to trips
     jt["trip_hour"] = pd.cut(
-        jt["departure_time"], bins=hours, right=False, labels=hours_labels
-    )
-    jt["trip_hour"] = jt["trip_hour"].astype(str)
+        jt["departure_time"],
+        bins=list(range(25)),
+        right=False,
+        labels=[f"{i:02d}:00" for i in range(24)],
+    ).astype(str)
+
+    # Renaming columns
     jt.rename(
         columns={
             "arrival_time": "trip_arrival_time",
@@ -266,14 +265,17 @@ def journey_times(stops_trips_times_routes, od_stops, cutoffs=[0, 7, 10, 16, 19,
         },
         inplace=True,
     )
-    jt = jt.reset_index()
+
+    # Merging journey time data with original data
     stops_trips_times_routes_jt = pd.merge(
         stops_trips_times_routes,
-        jt.loc[:, ["trip_id", "jt", "trip_period", "trip_hour"]],
+        jt[["trip_id", "jt", "trip_period", "trip_hour"]],
         how="left",
         on="trip_id",
     )
-
+    print(stops_trips_times_routes_jt.columns)
+    print(stops_trips_times_routes_jt.dtypes)
+    stops_trips_times_routes_jt.to_csv("help.csv")
     return stops_trips_times_routes_jt
 
 
@@ -357,33 +359,24 @@ def stop_frequency(combined_table):
 
 
 ###############################################################################
-LAD = config["LAD"]
+config = read_config(sys.argv[1])
+
 # set up wards or LSOAs being ploted
 
 granularity = config["granularity"]
-if granularity == "LSOA":
-    zone_name = "LSOA11NM"
-    zone_code = "LSOA11CD"
-    input_zones = pd.read_csv(config["OD_zones"])
-elif granularity == "MSOA":
-    zone_name = "MSOA21NM"
-    zone_code = "MSOA21CD"
-    input_zones = pd.read_csv(config["OD_zones"])
-else:
-    print("input correct files")
+zone_name = config["zone_name_column"]
+input_zones = pd.read_csv(config["OD_zones"])
 
-# gv.output(dpi=120, fig='svg')
 
-feed_path = config["gtfs_filepath"]
+feed_path = config["file_gtfs"]
 
-# use sheffield zones for development
-LAD = config["LAD"]
+
 # set up dictionary for filtering GTFS feed
 view = {"trips.txt": {}, "stops.txt": {}}
 
 # filter by date
 service_ids_by_date = ptg.read_service_ids_by_date(feed_path)
-date_1 = datetime.date(2023, 3, 20)
+date_1 = datetime.date(2023, 9, 20)
 service_ids = service_ids_by_date[date_1]
 view["trips.txt"]["service_id"] = service_ids
 
@@ -392,42 +385,62 @@ feed = ptg.load_geo_feed(feed_path, view)
 stops = feed.stops
 stops = stops.set_crs(4326, allow_override=True)
 
-# read shapefile and filter to Sheffield LAD
-gdf = read_zones_shapefile(granularity)
-gdf_1 = gdf.loc[gdf[zone_name].str.rsplit(" ", 1).str[0].isin(LAD)]
+# read shapefile and filter
+shapefile = config["shapefile"]
+gdf = read_zones_shapefile(shapefile)
+split = lambda x: x[zone_name].rsplit(" ", 1)[0]
+
 
 # find which stops are in the chosen origin and destinations zones
-stops_in_zone = gpd.tools.sjoin(stops, gdf_1, op="within", how="left")
+stops_in_zone = gpd.tools.sjoin(stops, gdf, op="within", how="left")
 origin_zones = input_zones["origin"]
 dest_zones = input_zones["dest"]
-
-
-# create dataframe with stops in origin and dest zones
-count = 0
+origin_zones = origin_zones.dropna()
+dest_zones = dest_zones.dropna()
+if origin_zones.empty:
+    origin_zones = stops_in_zone[zone_name]
+    origin_zones_zones = origin_zones[~origin_zones.isin(dest_zones)]
+if dest_zones.empty:
+    dest_zones = stops_in_zone[zone_name]
+    dest_zones = dest_zones[~dest_zones.isin(origin_zones)]
+origin_stops = pd.DataFrame()
+dest_stops = pd.DataFrame()
+# Process origin zones
+# Determine the length of the DataFrame based on the longer Series
+input_length = max(len(origin_zones), len(dest_zones))
+origin_zones = origin_zones.reindex(range(input_length)).fillna("")
+dest_zones = dest_zones.reindex(range(input_length)).fillna("")
+# Create the DataFrame
+input_zones = pd.DataFrame(
+    {
+        "origin": origin_zones,
+        "dest": dest_zones,
+    }
+)
+print(input_zones)
 for ward in input_zones["origin"]:
-    if count == 0:
-        origin_stops = stops[stops_in_zone[zone_name] == ward]
-    else:
-        origin_stops = pd.concat(
-            [origin_stops, stops[stops_in_zone[zone_name] == ward]]
-        )
-    count += 1
-    origin_stops = origin_stops.reset_index(drop=True)
-    origin_stops["Zone_stop_id"] = range(10000, 10000 + len(origin_stops))
-    origin_stops["orig/dest"] = 1
-count = 0
+    origin_stops = origin_stops.append(
+        stops[stops_in_zone[zone_name] == ward], ignore_index=True
+    )
+
+
+# Add Zone_stop_id and orig/dest columns to origin stops
+origin_stops["Zone_stop_id"] = range(10000, 10000 + len(origin_stops))
+origin_stops["orig/dest"] = 1
+
+# Process destination zones
 for ward in input_zones["dest"]:
-    if count == 0:
-        dest_stops = stops[stops_in_zone[zone_name] == ward]
-    else:
-        dest_stops = pd.concat([dest_stops, stops[stops_in_zone[zone_name] == ward]])
-    count += 1
-    dest_stops = dest_stops.reset_index(drop=True)
-    dest_stops["Zone_stop_id"] = range(20000, 20000 + len(dest_stops))
-    dest_stops["orig/dest"] = 2
+    dest_stops = dest_stops.append(
+        stops[stops_in_zone[zone_name] == ward], ignore_index=True
+    )
+
+# Add Zone_stop_id and orig/dest columns to destination stops
+dest_stops["Zone_stop_id"] = range(20000, 20000 + len(dest_stops))
+dest_stops["orig/dest"] = 2
+# Combine origin and destination stops
 od_stops = pd.concat([origin_stops, dest_stops]).reset_index(drop=True)
 
-# update view with only stops in origin and dest zones
+# Update view with stops in origin and destination zones
 view["stops.txt"]["stop_id"] = od_stops["stop_id"]
 # reread feed with only stops in OD zones for given date
 feed = ptg.load_geo_feed(feed_path, view=view)
@@ -440,6 +453,7 @@ stops_and_times = stop_times.merge(
     how="inner",
     on="stop_id",
 )
+
 view = trip_selection(stops_and_times)
 # read in final feed for each period and link routes trips agency table
 feed_1 = ptg.load_geo_feed(feed_path, view=view)
@@ -451,10 +465,10 @@ stops_OD_trips = pd.merge(
 stops_OD_trips["orig/dest"].fillna(0, inplace=True)
 stop_times = feed_1.stop_times
 
-gdf_2 = gdf_1[gdf_1[zone_name].isin(input_zones["origin"])]
+gdf_2 = gdf[gdf[zone_name].isin(input_zones["origin"])]
 origin_area = gdf_2.dissolve()
 origin_area[zone_name] = "Origin"
-gdf_3 = gdf_1[gdf_1[zone_name].isin(input_zones["dest"])]
+gdf_3 = gdf[gdf[zone_name].isin(input_zones["dest"])]
 dest_area = gdf_3.dissolve()
 dest_area[zone_name] = "Destination"
 od_area = pd.concat([origin_area, dest_area]).reset_index(drop=True)
@@ -468,7 +482,6 @@ od_area = od_area.rename(
 stop_lines_1 = feed_1.shapes.set_crs(4326, allow_override=True)
 
 view = trip_selection(stops_and_times)
-print(view)
 # read in final feed for each period and link routes trips agency table
 feed_1 = ptg.load_geo_feed(feed_path, view=view)
 
@@ -555,62 +568,29 @@ output_columns = [
     "Aggregated_jt_Mins",
     "Average_jt(period)",
     "ntrips(peak hour)",
+    "geometry",
 ]
-line_frequencies_output = line_frequencies[output_columns]
-line_frequencies_output.sort_values(
-    by=["trip_period", "route_short_name"], inplace=True
-)
-line_frequencies_output.to_csv(output_file, index=False)
 
+output_name = config["output_name"]
+shapes = line_frequencies.reset_index(drop=True).set_crs(4326, allow_override=True)
+shapes = shapes.sort_values("route_short_name").reset_index(drop=True)
+shapes = shapes.loc[
+    :,
+    [
+        "route_short_name",
+        "shape_id",
+        "trip_period",
+        "ntrips(period)",
+        "ntrips(peak hour)",
+        "Aggregated_jt_Mins",
+        "Average_jt(period)",
+        "geometry",
+    ],
+]
+shapes.to_file(output_name + "line_frequncies.shp", driver="ESRI Shapefile")
 
 frequency_1 = stop_frequency(jt)
 frequency_1 = frequency_1.reset_index()
 
-mapping_periods = config["period"]
-period_times = {"AM": "07:00-10:00", "IP": "10:00-16:00", "PM": "16:00-19:00"}
-for period in mapping_periods:
-    output_name = config["output_name"]
-    pandas_bokeh.output_file(f"{output_name}bus_frequencies_{period}.html")
-    shapes = (
-        line_frequencies[line_frequencies["trip_period"] == period_times[period]]
-        .reset_index(drop=True)
-        .set_crs(4326, allow_override=True)
-    )
-    shapes = shapes.sort_values("ntrips(period)").reset_index(drop=True)
-    frequency = frequency_1[frequency_1["trip_period"] == period_times[period]]
-    figure_1 = shapes.plot_bokeh(
-        figsize=(1200, 675),
-        show_figure=False,  # <== pass figure here!
-        category="ntrips(period)",
-        hovertool_columns=["route_short_name", "ntrips(period)"],
-        colormap=bokeh.palettes.viridis(shapes["ntrips(period)"].max() + 1),
-        colormap_range=(0, shapes["ntrips(period)"].max() + 1),
-        tile_provider="OSM",
-        colormap_uselog=False,
-        line_width=6,
-        legend="Bus Routes",
-        title=f"Number of buses in {period} period",
-        colorbar_tick_format="0",
-    )
-    figure = od_area.plot_bokeh(
-        figure=figure_1,
-        show_figure=False,
-        simplify_shapes=100,
-        legend="OD Zones",
-        tile_provider="OSM",
-        show_colorbar=False,
-        alpha=0.5,
-    )
-    frequency.plot_bokeh(
-        simplify_shapes=10000,
-        tile_provider="OSM",
-        figure=figure,
-        # xlim=[-170, -80],
-        # ylim=[10, 70],
-        # category="ntrips_period",
-        title=f"Number of buses in {period} period",
-        legend="Bus Stops",
-        size=7,
-        hovertool_columns=["stop_name", "ntrips_period"],
-        show_colorbar=False,
-    )
+
+frequency_1.to_file(output_name + "stops_frequncies.shp", driver="ESRI Shapefile")
