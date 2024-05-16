@@ -266,8 +266,10 @@ def main():
         config.ASSET_DIR.mkdir(exist_ok=True)
         LOG.info("Created asset directory: %s", config.ASSET_DIR)
 
-        for zone_system in params.zoning_system_parameters:
-            for time_id in timetable_ids:
+        for time_id in timetable_ids:
+            timetable = get_timetable_data(pg_db, time_id, config.ASSET_DIR)
+
+            for zone_system in params.zoning_system_parameters:
                 LOG.info("Running OTP for %s timetable %s", zone_system.name, time_id)
 
                 folder = (
@@ -278,7 +280,6 @@ def main():
                 LOG.info("Created working directory: %s", folder)
 
                 try:
-                    timetable = get_timetable_data(pg_db, time_id, folder)
                     produce_cost_metrics(
                         pg_db, timetable, params.otp_parameters, zone_system, folder
                     )
