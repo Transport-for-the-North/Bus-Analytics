@@ -17,5 +17,11 @@ scheduler's environment.
   [requirements_dev.txt](requirements_dev.txt))
 - Install requirements only available on pip ([requirements_pip.txt](requirements_pip.txt))
 - Install additional OTP4GB requirements, from otp4gb-py repository (`otp4gb-py/requirements.txt`)
-- Set environment variable (`OTP4GB_REPO_FOLDER`) pointing to the local otp4gb-py repository folder,
-  this defaults to `../otp4gb-py`
+- Set environment variable (`OTP4GB_REPO_FOLDER`) pointing to the local otp4gb-py repository
+  folder, this defaults to `../otp4gb-py`
+
+- Setup symbolic links to OTP folders within Bus-analytics using,
+  `mklink /D folder ..\otp4gb-py\folder`, for the following folders:
+  - bin
+  - config
+  - assets
