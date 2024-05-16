@@ -10,5 +10,12 @@ scheduler requires [OTP4GB-py repository](https://github.com/transport-for-the-n
 to be cloned and setup on the machine and any of its requirements to be installed in the
 scheduler's environment.
 
-The location of the local OTP4GB-py repository needs to be provided as the environment variable
-`OTP4GB_REPO_FOLDER` but by default has the value "../otp4gb-py".
+### Setup
+
+- Clone and setup [OTP4GB-py repository](https://github.com/transport-for-the-north/otp4gb-py/)
+- Create environment and install basic requirements ([requirements.txt](requirements.txt) and
+  [requirements_dev.txt](requirements_dev.txt))
+- Install requirements only available on pip ([requirements_pip.txt](requirements_pip.txt))
+- Install additional OTP4GB requirements, from otp4gb-py repository (`otp4gb-py/requirements.txt`)
+- Set environment variable (`OTP4GB_REPO_FOLDER`) pointing to the local otp4gb-py repository folder,
+  this defaults to `../otp4gb-py`
