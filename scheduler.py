@@ -127,11 +127,40 @@ def get_timetable_data(
     if timetable is None:
         raise ValueError("couldn't find a timetable")
 
-    path = shutil.copy(timetable.actual_timetable_path, folder)
+    dst_path = folder / timetable.actual_timetable_path.name
+    if dst_path.is_file():
+        dst_path.unlink()
+
+    shutil.copy(timetable.actual_timetable_path, dst_path)
 
     date = next_day(timetable.upload_date, 0)
 
-    return TimetableData(timetable.id, path, date)
+    return TimetableData(timetable.id, dst_path, date)
+
+
+def get_zone_system(
+    pg_database: database.Database, params: ZoningSystemParams
+) -> pathlib.Path:
+    LOG.info(
+        "Downloading zone system %s (%s)",
+        params.name,
+        params.id,
+    )
+    with pg_database.engine.connect() as conn:
+        stmt = sql.text(
+            "SELECT id, zone_type_id, name, longitude, latitude\n"
+            "FROM spatial_data.zones WHERE zone_type_id = :zone_system_id"
+        ).bindparams(zone_system_id=params.id)
+        zone_system = pd.read_sql(stmt, conn)
+
+    zone_system.rename(columns=_OTP_CENTROIDS_RENAME, inplace=True)
+
+    # Save zone system CSV to assets folder
+    zone_path = config.ASSET_DIR / f"otp_zone_centroid_id{params.id}.csv"
+    zone_system.to_csv(zone_path, index=False)
+    LOG.info("Saved zone system to: %s", zone_path)
+
+    return zone_path
 
 
 def produce_cost_metrics(
@@ -143,24 +172,13 @@ def produce_cost_metrics(
 ):
     start = datetime.datetime.now()
 
-    with pg_database.engine.connect() as conn:
-        stmt = sql.text(
-            "SELECT id, zone_type_id, name, longitude, latitude\n"
-            "FROM spatial_data.zones WHERE zone_type_id = :zone_system_id"
-        ).bindparams(zone_system_id=zone_system_params.id)
-        zone_system = pd.read_sql(stmt, conn)
-
-    zone_system.rename(columns=_OTP_CENTROIDS_RENAME, inplace=True)
-    # Save zone system CSV to assets folder
-    zone_filename = f"otp_zone_centroid_id{zone_system_params.id}.csv"
-    config.ASSET_DIR.mkdir(exist_ok=True)
-    zone_system.to_csv(config.ASSET_DIR / zone_filename, index=False)
+    zone_filepath = get_zone_system(pg_database, zone_system_params)
 
     # Fill in config with input file names and parameters
     otp_config = config.ProcessConfig(
         date=timetable.date,
         gtfs_files=[timetable.path.name],
-        centroids=zone_filename,
+        centroids=zone_filepath.name,
         extents=zone_system_params.extents,
         osm_file=cost_metrics_params.osm_file,
         time_periods=cost_metrics_params.time_periods,
@@ -172,8 +190,11 @@ def produce_cost_metrics(
         crowfly_max_distance=cost_metrics_params.crowfly_max_distance,
         write_raw_responses=False,
     )
-    otp_config.save_yaml(folder / "config.yml")
+    config_path = folder / "config.yml"
+    otp_config.save_yaml(config_path)
+    LOG.info("Saved OTP config: %s", config_path)
 
+    LOG.info("Starting OTP processing")
     try:
         otp.run_process(folder=folder, save_parameters=False, prepare=True, force=False)
     except Exception as exc:
@@ -186,6 +207,7 @@ def produce_cost_metrics(
         )
         LOG.debug("Error running OTP, logged to run metadata table with ID=%s", run_id)
         raise
+    LOG.info("Done running OTP for %s", folder.name)
 
     for tp in otp_config.time_periods:
         travel_datetime = datetime.datetime.combine(otp_config.date, tp.travel_time)
@@ -205,6 +227,10 @@ def produce_cost_metrics(
             metrics_path = (
                 folder / f"{tp.name}/{mode}_costs_{travel_datetime:%Y%m%dT%H%M}.csv"
             )
+            if not metrics_path.is_file():
+                LOG.error("Couldn't find OTP cost metrics file: %s", metrics_path)
+                continue
+
             df: pd.DataFrame = pd.read_csv(metrics_path)
 
             # Update column names
@@ -237,14 +263,20 @@ def main():
         timetable_ids = [1, 3]
 
         pg_db = database.Database(params.database_parameters)
+        config.ASSET_DIR.mkdir(exist_ok=True)
+        LOG.info("Created asset directory: %s", config.ASSET_DIR)
 
         for zone_system in params.zoning_system_parameters:
-            folder = (
-                params.output_folder
-                / f"OTP {zone_system.name} - {datetime.date.today():%Y%m%d}"
-            )
-
             for time_id in timetable_ids:
+                LOG.info("Running OTP for %s timetable %s", zone_system.name, time_id)
+
+                folder = (
+                    params.output_folder
+                    / f"OTP TT{time_id} {zone_system.name} - {datetime.date.today():%Y%m%d}"
+                )
+                folder.mkdir(exist_ok=True)
+                LOG.info("Created working directory: %s", folder)
+
                 try:
                     timetable = get_timetable_data(pg_db, time_id, folder)
                     produce_cost_metrics(
@@ -255,6 +287,8 @@ def main():
                     LOG.error(
                         "Error running OTP for timetable %s", time_id, exc_info=True
                     )
+
+                # TODO Post errors and sucesses to Teams, using BODSE functionality
 
             # TODO Find and delete older cached run folders
 
