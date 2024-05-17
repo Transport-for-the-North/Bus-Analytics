@@ -225,7 +225,7 @@ def produce_cost_metrics(
             # Find cost metrics file
             # TODO Make method for finding outputs more robust
             metrics_path = (
-                folder / f"{tp.name}/{mode}_costs_{travel_datetime:%Y%m%dT%H%M}.csv"
+                folder / f"costs/{tp.name}/{mode}_costs_{travel_datetime:%Y%m%dT%H%M}.csv"
             )
             if not metrics_path.is_file():
                 LOG.error("Couldn't find OTP cost metrics file: %s", metrics_path)
@@ -260,6 +260,10 @@ def main():
 
         # TODO Timetable IDs should be found in database using download_timetable_to_assets
         # instead of being hardcoded
+        # - Find recent timetable ID (unadjusted and adjusted)
+        # - Check if it has cost metrics results for the timetable ID
+        # - Check it has cost metrics results for the specific zone system
+        # SELECT DISTINCT timetable_id, zone_type_id FROM bus_data.cost_metrics
         timetable_ids = [1, 3]
 
         pg_db = database.Database(params.database_parameters)
