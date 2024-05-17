@@ -196,7 +196,7 @@ def produce_cost_metrics(
 
     LOG.info("Starting OTP processing")
     try:
-        otp.run_process(folder=folder, save_parameters=False, prepare=True, force=True)
+        otp.run_process(folder=folder, save_parameters=False, prepare=False, force=True)
     except Exception as exc:
         run_id = pg_database.insert_run_metadata(
             database.ModelName.OTP4GB,
