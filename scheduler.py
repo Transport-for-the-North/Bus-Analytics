@@ -9,9 +9,10 @@ import datetime
 import logging
 import os
 import pathlib
+import re
 import shutil
 import sys
-from typing import Optional
+from typing import Optional, Sequence
 
 import caf.toolkit as ctk
 import pandas as pd
@@ -225,7 +226,8 @@ def produce_cost_metrics(
             # Find cost metrics file
             # TODO Make method for finding outputs more robust
             metrics_path = (
-                folder / f"costs/{tp.name}/{mode}_costs_{travel_datetime:%Y%m%dT%H%M}.csv"
+                folder
+                / f"costs/{tp.name}/{mode}_costs_{travel_datetime:%Y%m%dT%H%M}.csv"
             )
             if not metrics_path.is_file():
                 LOG.error("Couldn't find OTP cost metrics file: %s", metrics_path)
@@ -252,11 +254,40 @@ def produce_cost_metrics(
                 )
 
 
+class PackageFilter(logging.Filter):
+    """Logging filter which only allows given packages (and sub-packages)."""
+
+    def __init__(self, allowed_pkgs: Sequence[str]) -> None:
+        super().__init__()
+
+        pkgs = set(str(i).lower().strip() for i in allowed_pkgs)
+
+        # Build package match pattern
+        pkg_str = "|".join(re.escape(i) for i in pkgs)
+        self._pattern = re.compile(rf"^({pkg_str})(\..*)*$", re.I)
+
+        LOG.debug("Setup logging package filter with regex: %r", self._pattern.pattern)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        matched = self._pattern.match(record.name.strip())
+        if matched is None:
+            return False
+
+        return True
+
+
 def main():
     params = SchedulerConfig.load_yaml(_CONFIG_FILE)
     details = ctk.ToolDetails("bus-analytics-scheduler", "0.1.0")
 
-    with ctk.LogHelper("", details, log_file=params.output_folder / "scheduler.log"):
+    with ctk.LogHelper(
+        "", details, log_file=params.output_folder / "scheduler.log"
+    ) as helper:
+
+        # Add filter to handlers to only include messages from the bodse or otp4gb packages
+        pkg_filter = PackageFilter(["", "__main__", "bodse", "otp4gb"])
+        for handler in helper.logger.handlers:
+            handler.addFilter(pkg_filter)
 
         # TODO Timetable IDs should be found in database using download_timetable_to_assets
         # instead of being hardcoded
