@@ -12,13 +12,15 @@ import pathlib
 import re
 import shutil
 import sys
+import time
+import arrow
 from typing import Optional, Sequence
 
 import caf.toolkit as ctk
 import pandas as pd
 import pydantic
 import sqlalchemy
-from bodse import database
+from bodse import database, teams, scheduler
 from pydantic import dataclasses
 from sqlalchemy import orm, sql
 
@@ -76,10 +78,14 @@ class ZoningSystemParams:
 
 
 class SchedulerConfig(ctk.BaseConfig):
+    """Parameters for running BODS Scheduler."""
+
     output_folder: pydantic.DirectoryPath
+    archive_folder: pydantic.DirectoryPath
     database_parameters: database.DatabaseConfig
     otp_parameters: OTPParameters
     zoning_system_parameters: list[ZoningSystemParams]
+    teams_webhook_url: Optional[pydantic.HttpUrl] = None
 
 
 @dataclasses.dataclass
@@ -87,7 +93,6 @@ class TimetableData:
     id: int
     path: pydantic.FilePath
     date: datetime.date
-
 
 def next_day(date: datetime.date, weekday: int) -> datetime.date:
     """Get date of next specific weekday."""
@@ -102,6 +107,7 @@ def download_timetable_to_assets(
     pg_database: database.Database,
     adjusted: bool = False,
     folder: pathlib.Path = config.ASSET_DIR,
+    teams_post: Optional[teams.TeamsPost] = None,
 ) -> TimetableData:
     """Get GTFS timetable from database and save to `folder`."""
     timetable = pg_database.find_recent_timetable(adjusted)
@@ -116,7 +122,7 @@ def download_timetable_to_assets(
 
 
 def get_timetable_data(
-    pg_database: database.Database, id_: int, folder: pathlib.Path
+    pg_database: database.Database, id_: int, folder: pathlib.Path, teams_post: Optional[teams.TeamsPost] = None,
 ) -> TimetableData:
     stmt = sqlalchemy.select(database.Timetable).where(database.Timetable.id == id_)
 
@@ -140,7 +146,7 @@ def get_timetable_data(
 
 
 def get_zone_system(
-    pg_database: database.Database, params: ZoningSystemParams
+    pg_database: database.Database, params: ZoningSystemParams, teams_post: Optional[teams.TeamsPost] = None,
 ) -> pathlib.Path:
     LOG.info(
         "Downloading zone system %s (%s)",
@@ -170,16 +176,17 @@ def produce_cost_metrics(
     cost_metrics_params: OTPParameters,
     zone_system_params: ZoningSystemParams,
     folder: pathlib.Path,
+    teams_post: Optional[teams.TeamsPost] = None,
 ):
     start = datetime.datetime.now()
 
-    zone_filepath = get_zone_system(pg_database, zone_system_params)
+    zone_filepath = "Cheshire.csv"#get_zone_system(pg_database, zone_system_params) 
 
     # Fill in config with input file names and parameters
     otp_config = config.ProcessConfig(
         date=timetable.date,
         gtfs_files=[timetable.path.name],
-        centroids=zone_filepath.name,
+        centroids=zone_filepath,#.name
         extents=zone_system_params.extents,
         osm_file=cost_metrics_params.osm_file,
         time_periods=cost_metrics_params.time_periods,
@@ -189,13 +196,14 @@ def produce_cost_metrics(
         max_walk_distance=cost_metrics_params.max_walk_distance,
         number_of_threads=cost_metrics_params.number_of_threads,
         crowfly_max_distance=cost_metrics_params.crowfly_max_distance,
-        write_raw_responses=False,
+        write_raw_responses=True,
     )
     config_path = folder / "config.yml"
     otp_config.save_yaml(config_path)
     LOG.info("Saved OTP config: %s", config_path)
 
     LOG.info("Starting OTP processing")
+    scheduler._log_success("Attempting to run OTP.",teams_post)
     try:
         otp.run_process(folder=folder, save_parameters=False, prepare=False, force=True)
     except Exception as exc:
@@ -207,8 +215,11 @@ def produce_cost_metrics(
             error=f"OTP error {exc.__class__.__name__}: {exc}",
         )
         LOG.debug("Error running OTP, logged to run metadata table with ID=%s", run_id)
+        scheduler._log_error(f"Error running OTP, logged to run metadata table with ID={run_id}",exc,teams_post=teams_post)
         raise
     LOG.info("Done running OTP for %s", folder.name)
+    scheduler._log_success(f"Done running OTP for {folder.name}",teams_post=teams_post)
+
 
     for tp in otp_config.time_periods:
         travel_datetime = datetime.datetime.combine(otp_config.date, tp.travel_time)
@@ -224,16 +235,18 @@ def produce_cost_metrics(
             )
 
             # Find cost metrics file
-            # TODO Make method for finding outputs more robust
             metrics_path = (
                 folder
-                / f"costs/{tp.name}/{mode}_costs_{travel_datetime:%Y%m%dT%H%M}.csv"
+                / f"costs/{tp.name}/{mode}_costs_{travel_datetime:%Y%m%dT%H%M}-metrics.csv"
             )
             if not metrics_path.is_file():
                 LOG.error("Couldn't find OTP cost metrics file: %s", metrics_path)
+                scheduler._log_error(f"Couldn't find OTP cost metrics file: {metrics_path}",exc, teams_post)
                 continue
 
             df: pd.DataFrame = pd.read_csv(metrics_path)
+
+            LOG.info("Preparing Cost Metrics file")
 
             # Update column names
             df.drop(columns=_OTP_COST_METRICS_DROP_COLUMNS, inplace=True)
@@ -244,6 +257,8 @@ def produce_cost_metrics(
             df["timetable_id"] = timetable.id
             df["zone_type_id"] = zone_system_params.id
 
+            LOG.info("Database connection starting")
+            
             with pg_database.engine.connect() as conn:
                 df.to_sql(
                     "cost_metrics",
@@ -278,31 +293,54 @@ class PackageFilter(logging.Filter):
 
 def main():
     params = SchedulerConfig.load_yaml(_CONFIG_FILE)
-    details = ctk.ToolDetails("bus-analytics-scheduler", "0.1.0")
+    details = ctk.ToolDetails("bus-analytics-scheduler", "0.1.0",source_url="https://github.com/Transport-for-the-North/Bus-Analytics")
 
     with ctk.LogHelper(
         "", details, log_file=params.output_folder / "scheduler.log"
     ) as helper:
+        
+        if params.teams_webhook_url is not None:
+            teams_post = teams.TeamsPost(
+                params.teams_webhook_url,
+                details.name,
+                details.version,
+                details.source_url, 
+                allow_missing_module=True,
+            )
+        else:
+            teams_post = None            
+
+        # Archive outputs older than 30 days
+        output_path = params.output_folder
+        archive_path = params.archive_folder
+        critical_time = arrow.now().shift(days=-30)
+
+        for item in pathlib.Path(output_path).glob('*'):
+            item_time = arrow.get(item.stat().st_mtime)
+            if item_time < critical_time:
+                try:
+                    shutil.move(str(item.absolute()), f"{archive_path}")
+                except Exception as exc:
+                    new_name = item / item.with_stem(item.stem + "_1")
+                    item = item.rename(item / new_name)
+                    shutil.move(str(item.absolute()), f"{archive_path}")
+                scheduler._log_success(f"Previously scheduled output {str(item.absolute())} moved to {archive_path} as it is older than 30 days. Please consider deleting metrics from this output from the Postgres database.", teams_post)
+                pass
 
         # Add filter to handlers to only include messages from the bodse or otp4gb packages
-        pkg_filter = PackageFilter(["", "__main__", "bodse", "otp4gb"])
+        pkg_filter = PackageFilter(["root", "__main__", "bodse", "otp4gb"])
         for handler in helper.logger.handlers:
             handler.addFilter(pkg_filter)
 
-        # TODO Timetable IDs should be found in database using download_timetable_to_assets
-        # instead of being hardcoded
-        # - Find recent timetable ID (unadjusted and adjusted)
-        # - Check if it has cost metrics results for the timetable ID
-        # - Check it has cost metrics results for the specific zone system
-        # SELECT DISTINCT timetable_id, zone_type_id FROM bus_data.cost_metrics
-        timetable_ids = [1, 3]
-
         pg_db = database.Database(params.database_parameters)
+        non_adj = download_timetable_to_assets(pg_db, False, config.ASSET_DIR, teams_post)
+        adj = download_timetable_to_assets(pg_db, True, config.ASSET_DIR, teams_post)
+        timetable_ids = [1] # [non_adj.id, adj.id] 
+
         config.ASSET_DIR.mkdir(exist_ok=True)
         LOG.info("Created asset directory: %s", config.ASSET_DIR)
-
         for time_id in timetable_ids:
-            timetable = get_timetable_data(pg_db, time_id, config.ASSET_DIR)
+            timetable = get_timetable_data(pg_db, time_id, config.ASSET_DIR, teams_post)
 
             for zone_system in params.zoning_system_parameters:
                 LOG.info("Running OTP for %s timetable %s", zone_system.name, time_id)
@@ -316,18 +354,15 @@ def main():
 
                 try:
                     produce_cost_metrics(
-                        pg_db, timetable, params.otp_parameters, zone_system, folder
+                        pg_db, timetable, params.otp_parameters, zone_system, folder, teams_post
                     )
-
+                 
                 except Exception:
                     LOG.error(
                         "Error running OTP for timetable %s", time_id, exc_info=True
                     )
-
-                # TODO Post errors and sucesses to Teams, using BODSE functionality
-
-            # TODO Find and delete older cached run folders
-
+                
+    scheduler._log_success("BODS Scheduler run finished.", teams_post)
 
 if __name__ == "__main__":
     main()
