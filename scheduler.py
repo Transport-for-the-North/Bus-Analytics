@@ -52,6 +52,23 @@ _OTP_CENTROIDS_RENAME = {
     "zone_type_id": "zone_system",
 }
 
+
+def _get_env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name, default)
+    if isinstance(value, bool):
+        return value
+
+    value = value.strip().lower()
+    if value in ("yes", "y", "true", "t", "1"):
+        return True
+    if value in ("no", "n", "false", "f", "0"):
+        return False
+
+    raise ValueError(f"invalid boolean value for environment variable {name}={value}")
+
+
+_SHUTDOWN = _get_env_bool("BUS_ANALYTICS_SHUTDOWN", True)
+
 ##### CLASSES & FUNCTIONS #####
 
 
@@ -330,4 +347,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        print(f"Ignoring exception: {exc}")
+
+    if _SHUTDOWN:
+        print("Shutting down machine")
+        os.system('shutdown /s /t 10 /c "Bus analytics scheduler finished"')
