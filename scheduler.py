@@ -238,13 +238,16 @@ def produce_cost_metrics(
                 otp_config.model_dump_json(),
                 True,
                 output=f'{tp.name} {mode} done. Run folder: "{folder.absolute()}"',
+                time_period=tp.name,
+                mode=mode,
+                modelled_date=otp_config.date,
             )
 
             # Find cost metrics file
             # TODO Make method for finding outputs more robust
             metrics_path = (
                 folder
-                / f"costs/{tp.name}/{mode}_costs_{travel_datetime:%Y%m%dT%H%M}.csv"
+                / f"costs/{tp.name}/{mode}_costs_{travel_datetime:%Y%m%dT%H%M}-metrics.csv"
             )
             if not metrics_path.is_file():
                 LOG.error("Couldn't find OTP cost metrics file: %s", metrics_path)
