@@ -206,7 +206,7 @@ def produce_cost_metrics(
         max_walk_distance=cost_metrics_params.max_walk_distance,
         number_of_threads=cost_metrics_params.number_of_threads,
         crowfly_max_distance=cost_metrics_params.crowfly_max_distance,
-        write_raw_responses=False,
+        write_raw_responses=True,
     )
     config_path = folder / "config.yml"
     otp_config.save_yaml(config_path)
@@ -305,7 +305,7 @@ def main():
     ) as helper:
 
         # Add filter to handlers to only include messages from the bodse or otp4gb packages
-        pkg_filter = PackageFilter(["", "__main__", "bodse", "otp4gb"])
+        pkg_filter = PackageFilter(["__main__", "bodse", "otp4gb"])
         for handler in helper.logger.handlers:
             handler.addFilter(pkg_filter)
 
