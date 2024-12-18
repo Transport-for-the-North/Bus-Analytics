@@ -90,7 +90,7 @@ class OTPParameters:
 class ZoningSystemParams:
     id: int
     name: str
-    extents: config.Bounds
+    extents: Optional[config.Bounds] = None
 
 
 class SchedulerConfig(ctk.BaseConfig):
