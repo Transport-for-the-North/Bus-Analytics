@@ -67,7 +67,8 @@ def _get_env_bool(name: str, default: bool) -> bool:
     raise ValueError(f"invalid boolean value for environment variable {name}={value}")
 
 
-_SHUTDOWN = _get_env_bool("BUS_ANALYTICS_SHUTDOWN", True)
+_SHUTDOWN_ENV_VARIABLE = "BUS_ANALYTICS_SHUTDOWN"
+_SHUTDOWN = _get_env_bool(_SHUTDOWN_ENV_VARIABLE, True)
 
 ##### CLASSES & FUNCTIONS #####
 
@@ -355,6 +356,13 @@ if __name__ == "__main__":
     except Exception as exc:
         print(f"Ignoring exception: {exc}")
 
-    if _SHUTDOWN:
+    # Check if shutdown has been updated since program started
+    try:
+        shutdown = _get_env_bool(_SHUTDOWN_ENV_VARIABLE, _SHUTDOWN)
+    except ValueError as exc:
+        print(f"Reverting to previous value ({_SHUTDOWN}) - {exc}")
+        shutdown = _SHUTDOWN
+
+    if shutdown:
         print("Shutting down machine")
         os.system('shutdown /s /t 10 /c "Bus analytics scheduler finished"')
