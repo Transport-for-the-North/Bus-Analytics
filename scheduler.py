@@ -182,6 +182,78 @@ def get_zone_system(
     return zone_path
 
 
+test = [
+    "origin_zones_id",
+    "destination_zones_id",
+    "number_itineraries",
+    "mean_duration",
+    "mean_travel_distance",
+    "mean_walkTime",
+    "mean_transitTime",
+    "mean_waitingTime",
+    "mean_walkDistance",
+    "mean_otp_generalised_cost",
+    "mean_transfers",
+    "mean_generalised_cost",
+    "min_startTime",
+    "max_startTime",
+    "min_endTime",
+    "max_endTime",
+    "median_duration",
+    "min_duration",
+    "max_duration",
+    "num_nans_duration",
+    "median_travel_distance",
+    "min_travel_distance",
+    "max_travel_distance",
+    "num_nans_travel_distance",
+    "median_walkTime",
+    "min_walkTime",
+    "max_walkTime",
+    "num_nans_walkTime",
+    "median_transitTime",
+    "min_transitTime",
+    "max_transitTime",
+    "num_nans_transitTime",
+    "median_waitingTime",
+    "min_waitingTime",
+    "max_waitingTime",
+    "num_nans_waitingTime",
+    "median_walkDistance",
+    "min_walkDistance",
+    "max_walkDistance",
+    "num_nans_walkDistance",
+    "median_otp_generalised_cost",
+    "min_otp_generalised_cost",
+    "max_otp_generalised_cost",
+    "num_nans_otp_generalised_cost",
+    "median_transfers",
+    "min_transfers",
+    "max_transfers",
+    "num_nans_transfers",
+    "median_generalised_cost",
+    "min_generalised_cost",
+    "max_generalised_cost",
+    "num_nans_generalised_cost",
+    "run_id",
+    "timetable_id",
+    "ID",
+    "zone_type_id",
+]
+
+
+def _camel_to_snake_case(text: str) -> str:
+    """Converts camel case (walkTime) to snake case (walk_time)."""
+    pattern = r"([a-z])([A-Z])"
+    text = re.sub(
+        pattern,
+        lambda x: f"{x.group(1)}_{x.group(2).lower()}",
+        text,
+    )
+
+    return text
+
+
 def produce_cost_metrics(
     pg_database: database.Database,
     timetable: TimetableData,
@@ -264,6 +336,7 @@ def produce_cost_metrics(
             df["run_id"] = run_id
             df["timetable_id"] = timetable.id
             df["zone_type_id"] = zone_system_params.id
+            df.columns = [_camel_to_snake_case(i) for i in df.columns]
 
             with pg_database.engine.connect() as conn:
                 df.to_sql(
