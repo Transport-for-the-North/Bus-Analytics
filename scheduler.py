@@ -12,6 +12,7 @@ import pathlib
 import re
 import shutil
 import sys
+import warnings
 from typing import Optional, Sequence
 
 import caf.toolkit as ctk
@@ -379,7 +380,7 @@ def main():
     ) as helper:
 
         # Add filter to handlers to only include messages from the bodse or otp4gb packages
-        pkg_filter = PackageFilter(["__main__", "bodse", "otp4gb"])
+        pkg_filter = PackageFilter(["__main__", "bodse", "otp4gb", "py.warnings"])
         for handler in helper.logger.handlers:
             handler.addFilter(pkg_filter)
 
@@ -390,6 +391,7 @@ def main():
         # - Check it has cost metrics results for the specific zone system
         # SELECT DISTINCT timetable_id, zone_type_id FROM bus_data.cost_metrics
         timetable_ids = [1, 3]
+        warnings.warn(f"using hardcoded timetable IDs: {timetable_ids}", UserWarning)
 
         pg_db = database.Database(params.database_parameters)
         config.ASSET_DIR.mkdir(exist_ok=True)
