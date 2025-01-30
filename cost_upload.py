@@ -19,7 +19,8 @@ import scheduler
 
 ##### CONSTANTS #####
 
-LOG = logging.getLogger(__name__)
+_NAME = pathlib.Path(__file__).stem
+LOG = logging.getLogger(_NAME)
 _CONFIG_FILE = pathlib.Path(__file__).with_suffix(".yml")
 _TIME_PERIODS = ("AM", "IP", "PM", "OP")
 
@@ -100,9 +101,9 @@ def main() -> None:
     parameters = _UploadConfig.load_yaml(_CONFIG_FILE)
 
     log_file = _CONFIG_FILE.with_suffix(".log")
-    details = ctk.ToolDetails(_CONFIG_FILE.stem, "0.1.0")
+    details = ctk.ToolDetails(_NAME, "0.1.0")
 
-    with ctk.LogHelper(_CONFIG_FILE.stem, details, log_file=log_file):
+    with ctk.LogHelper(_NAME, details, log_file=log_file):
         LOG.info("Connecting to database")
         pg_database = database.Database(parameters.database_parameters)
 
