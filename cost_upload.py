@@ -107,7 +107,9 @@ def main() -> None:
         pg_database = database.Database(parameters.database_parameters)
 
         metrics_info = OTPParameters.from_path(parameters.metrics_path)
+        LOG.debug("Cost metrics info: %s", metrics_info)
 
+        LOG.info("Inserting run metadata")
         run_id = pg_database.insert_run_metadata(
             database.ModelName.OTP4GB,
             datetime.datetime.now(),
