@@ -1,0 +1,5 @@
+caf.toolkit>=0.5
+sqlalchemy>=2
+pandas>=2.2
+
+# Additional packages only available on PyPI in requirements_pip.txt

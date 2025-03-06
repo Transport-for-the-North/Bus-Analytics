@@ -1,0 +1,41 @@
+output_folder: Outputs
+
+database_parameters:
+  username: Database username
+  password: User password
+  host: Database URL
+  database: Name of database
+  port: 5432
+
+otp_parameters:
+  osm_file: Name of OSM file
+  time_periods:
+    - name: AM
+      travel_time: 09:00
+      search_window_minutes: 60
+
+  modes:
+    - - TRANSIT
+      - WALK
+
+  generalised_cost_factors:
+    wait_time: 1
+    transfer_number: 1
+    walk_time: 1
+    transit_time: 1
+    walk_distance: 1
+    transit_distance: 1
+
+  iterinary_aggregation_method: mean
+  max_walk_distance: 10_000
+  number_of_threads: 10
+  crowfly_max_distance: 100_000
+
+zoning_system_parameters:
+  - id: ID of zone system in database
+    name: Name of zone system
+    extents:
+      min_lon: 1
+      max_lon: 1
+      min_lat: 1
+      max_lat: 1
