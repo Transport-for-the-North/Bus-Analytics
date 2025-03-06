@@ -129,7 +129,7 @@ def download_timetable_to_assets(
 
     path = shutil.copy(timetable.actual_timetable_path, folder)
 
-    date = next_day(timetable.upload_date, 0)
+    date = next_day(timetable.created_date, 0)
 
     return TimetableData(timetable.id, path, date)
 
@@ -153,7 +153,7 @@ def get_timetable_data(
 
     shutil.copy(timetable.actual_timetable_path, dst_path)
 
-    date = next_day(timetable.upload_date, 0)
+    date = next_day(timetable.created_date, 0)
 
     return TimetableData(timetable.id, dst_path, date)
 
@@ -262,8 +262,6 @@ def produce_cost_metrics(
     zone_system_params: ZoningSystemParams,
     folder: pathlib.Path,
 ):
-    start = datetime.datetime.now()
-
     zone_filepath = get_zone_system(pg_database, zone_system_params)
 
     # Fill in config with input file names and parameters
@@ -287,18 +285,7 @@ def produce_cost_metrics(
     LOG.info("Saved OTP config: %s", config_path)
 
     LOG.info("Starting OTP processing")
-    try:
-        otp.run_process(folder=folder, save_parameters=False, prepare=False, force=True)
-    except Exception as exc:
-        run_id = pg_database.insert_run_metadata(
-            database.ModelName.OTP4GB,
-            start,
-            otp_config.model_dump_json(),
-            False,
-            error=f"OTP error {exc.__class__.__name__}: {exc}",
-        )
-        LOG.debug("Error running OTP, logged to run metadata table with ID=%s", run_id)
-        raise
+    otp.run_process(folder=folder, save_parameters=False, prepare=False, force=True)
     LOG.info("Done running OTP for %s", folder.name)
 
     for tp in otp_config.time_periods:
@@ -307,14 +294,11 @@ def produce_cost_metrics(
         for modes in otp_config.modes:
             mode = "_".join(i.name for i in modes)
             run_id = pg_database.insert_run_metadata(
-                database.ModelName.OTP4GB,
-                start,
-                otp_config.model_dump_json(),
                 True,
-                output=f'{tp.name} {mode} done. Run folder: "{folder.absolute()}"',
                 time_period=tp.name,
                 mode=mode,
                 modelled_date=otp_config.date,
+                timetable_id=timetable.id
             )
 
             # Find cost metrics file
@@ -335,7 +319,6 @@ def produce_cost_metrics(
 
             # Add run metadata ID and zone system columns
             df["run_id"] = run_id
-            df["timetable_id"] = timetable.id
             df["zone_type_id"] = zone_system_params.id
             df.columns = [_camel_to_snake_case(i) for i in df.columns]
 
