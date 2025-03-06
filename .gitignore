@@ -163,3 +163,13 @@ cython_debug/
 
 # VS Code
 .vscode/
+
+# OTP folders (sym links) & related credential files
+assets
+bin
+config
+scheduler.yml
+
+# ignore these to clean git
+Test_outputs/
+not outputs/

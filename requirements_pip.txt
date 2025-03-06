@@ -1,4 +1,4 @@
 # These packages cannot be installed with conda
 
 # BODS-Extractor depency only available directly from GitHub
-bodse[teams] @ git+https://github.com/Transport-for-the-North/BODS-Extractor.git@gtfs_adjustment
+bodse[teams] @ git+https://github.com/Transport-for-the-North/BODS-Extractor.git@db_metadata

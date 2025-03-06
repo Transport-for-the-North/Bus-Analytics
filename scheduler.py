@@ -9,9 +9,11 @@ import datetime
 import logging
 import os
 import pathlib
+import re
 import shutil
 import sys
-from typing import Optional
+import warnings
+from typing import Optional, Sequence
 
 import caf.toolkit as ctk
 import pandas as pd
@@ -51,6 +53,24 @@ _OTP_CENTROIDS_RENAME = {
     "zone_type_id": "zone_system",
 }
 
+
+def _get_env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name, default)
+    if isinstance(value, bool):
+        return value
+
+    value = value.strip().lower()
+    if value in ("yes", "y", "true", "t", "1"):
+        return True
+    if value in ("no", "n", "false", "f", "0"):
+        return False
+
+    raise ValueError(f"invalid boolean value for environment variable {name}={value}")
+
+
+_SHUTDOWN_ENV_VARIABLE = "BUS_ANALYTICS_SHUTDOWN"
+_SHUTDOWN = _get_env_bool(_SHUTDOWN_ENV_VARIABLE, True)
+
 ##### CLASSES & FUNCTIONS #####
 
 
@@ -71,7 +91,7 @@ class OTPParameters:
 class ZoningSystemParams:
     id: int
     name: str
-    extents: config.Bounds
+    extents: Optional[config.Bounds] = None
 
 
 class SchedulerConfig(ctk.BaseConfig):
@@ -163,6 +183,78 @@ def get_zone_system(
     return zone_path
 
 
+test = [
+    "origin_zones_id",
+    "destination_zones_id",
+    "number_itineraries",
+    "mean_duration",
+    "mean_travel_distance",
+    "mean_walkTime",
+    "mean_transitTime",
+    "mean_waitingTime",
+    "mean_walkDistance",
+    "mean_otp_generalised_cost",
+    "mean_transfers",
+    "mean_generalised_cost",
+    "min_startTime",
+    "max_startTime",
+    "min_endTime",
+    "max_endTime",
+    "median_duration",
+    "min_duration",
+    "max_duration",
+    "num_nans_duration",
+    "median_travel_distance",
+    "min_travel_distance",
+    "max_travel_distance",
+    "num_nans_travel_distance",
+    "median_walkTime",
+    "min_walkTime",
+    "max_walkTime",
+    "num_nans_walkTime",
+    "median_transitTime",
+    "min_transitTime",
+    "max_transitTime",
+    "num_nans_transitTime",
+    "median_waitingTime",
+    "min_waitingTime",
+    "max_waitingTime",
+    "num_nans_waitingTime",
+    "median_walkDistance",
+    "min_walkDistance",
+    "max_walkDistance",
+    "num_nans_walkDistance",
+    "median_otp_generalised_cost",
+    "min_otp_generalised_cost",
+    "max_otp_generalised_cost",
+    "num_nans_otp_generalised_cost",
+    "median_transfers",
+    "min_transfers",
+    "max_transfers",
+    "num_nans_transfers",
+    "median_generalised_cost",
+    "min_generalised_cost",
+    "max_generalised_cost",
+    "num_nans_generalised_cost",
+    "run_id",
+    "timetable_id",
+    "ID",
+    "zone_type_id",
+]
+
+
+def _camel_to_snake_case(text: str) -> str:
+    """Converts camel case (walkTime) to snake case (walk_time)."""
+    pattern = r"([a-z])([A-Z])"
+    text = re.sub(
+        pattern,
+        lambda x: f"{x.group(1)}_{x.group(2).lower()}",
+        text,
+    )
+
+    return text
+
+
 def produce_cost_metrics(
     pg_database: database.Database,
     timetable: TimetableData,
@@ -188,7 +280,7 @@ def produce_cost_metrics(
         max_walk_distance=cost_metrics_params.max_walk_distance,
         number_of_threads=cost_metrics_params.number_of_threads,
         crowfly_max_distance=cost_metrics_params.crowfly_max_distance,
-        write_raw_responses=False,
+        write_raw_responses=True,
     )
     config_path = folder / "config.yml"
     otp_config.save_yaml(config_path)
@@ -220,12 +312,16 @@ def produce_cost_metrics(
                 otp_config.model_dump_json(),
                 True,
                 output=f'{tp.name} {mode} done. Run folder: "{folder.absolute()}"',
+                time_period=tp.name,
+                mode=mode,
+                modelled_date=otp_config.date,
             )
 
             # Find cost metrics file
             # TODO Make method for finding outputs more robust
             metrics_path = (
-                folder / f"costs/{tp.name}/{mode}_costs_{travel_datetime:%Y%m%dT%H%M}.csv"
+                folder
+                / f"costs/{tp.name}/{mode}_costs_{travel_datetime:%Y%m%dT%H%M}-metrics.csv"
             )
             if not metrics_path.is_file():
                 LOG.error("Couldn't find OTP cost metrics file: %s", metrics_path)
@@ -241,6 +337,7 @@ def produce_cost_metrics(
             df["run_id"] = run_id
             df["timetable_id"] = timetable.id
             df["zone_type_id"] = zone_system_params.id
+            df.columns = [_camel_to_snake_case(i) for i in df.columns]
 
             with pg_database.engine.connect() as conn:
                 df.to_sql(
@@ -252,11 +349,40 @@ def produce_cost_metrics(
                 )
 
 
+class PackageFilter(logging.Filter):
+    """Logging filter which only allows given packages (and sub-packages)."""
+
+    def __init__(self, allowed_pkgs: Sequence[str]) -> None:
+        super().__init__()
+
+        pkgs = set(str(i).lower().strip() for i in allowed_pkgs)
+
+        # Build package match pattern
+        pkg_str = "|".join(re.escape(i) for i in pkgs)
+        self._pattern = re.compile(rf"^({pkg_str})(\..*)*$", re.I)
+
+        LOG.debug("Setup logging package filter with regex: %r", self._pattern.pattern)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        matched = self._pattern.match(record.name.strip())
+        if matched is None:
+            return False
+
+        return True
+
+
 def main():
     params = SchedulerConfig.load_yaml(_CONFIG_FILE)
     details = ctk.ToolDetails("bus-analytics-scheduler", "0.1.0")
 
-    with ctk.LogHelper("", details, log_file=params.output_folder / "scheduler.log"):
+    with ctk.LogHelper(
+        "", details, log_file=params.output_folder / "scheduler.log"
+    ) as helper:
+
+        # Add filter to handlers to only include messages from the bodse or otp4gb packages
+        pkg_filter = PackageFilter(["__main__", "bodse", "otp4gb", "py.warnings"])
+        for handler in helper.logger.handlers:
+            handler.addFilter(pkg_filter)
 
         # TODO Timetable IDs should be found in database using download_timetable_to_assets
         # instead of being hardcoded
@@ -265,6 +391,7 @@ def main():
         # - Check it has cost metrics results for the specific zone system
         # SELECT DISTINCT timetable_id, zone_type_id FROM bus_data.cost_metrics
         timetable_ids = [1, 3]
+        warnings.warn(f"using hardcoded timetable IDs: {timetable_ids}", UserWarning)
 
         pg_db = database.Database(params.database_parameters)
         config.ASSET_DIR.mkdir(exist_ok=True)
@@ -299,4 +426,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        print(f"Ignoring exception: {exc}")
+
+    # Check if shutdown has been updated since program started
+    try:
+        shutdown = _get_env_bool(_SHUTDOWN_ENV_VARIABLE, _SHUTDOWN)
+    except ValueError as exc:
+        print(f"Reverting to previous value ({_SHUTDOWN}) - {exc}")
+        shutdown = _SHUTDOWN
+
+    if shutdown:
+        print("Shutting down machine")
+        os.system('shutdown /s /t 10 /c "Bus analytics scheduler finished"')
