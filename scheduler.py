@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-    Dummy example running OTP process
+Dummy example running OTP process
 """
 
 ##### IMPORTS #####
@@ -129,7 +129,7 @@ def download_timetable_to_assets(
 
     path = shutil.copy(timetable.actual_timetable_path, folder)
 
-    date = next_day(timetable.created_date, 0)
+    date = next_day(timetable.feed_update_time.date(), 0)
 
     return TimetableData(timetable.id, path, date)
 
@@ -153,7 +153,7 @@ def get_timetable_data(
 
     shutil.copy(timetable.actual_timetable_path, dst_path)
 
-    date = next_day(timetable.created_date, 0)
+    date = next_day(timetable.feed_update_time.date(), 0)
 
     return TimetableData(timetable.id, dst_path, date)
 
@@ -181,66 +181,6 @@ def get_zone_system(
     LOG.info("Saved zone system to: %s", zone_path)
 
     return zone_path
-
-
-test = [
-    "origin_zones_id",
-    "destination_zones_id",
-    "number_itineraries",
-    "mean_duration",
-    "mean_travel_distance",
-    "mean_walkTime",
-    "mean_transitTime",
-    "mean_waitingTime",
-    "mean_walkDistance",
-    "mean_otp_generalised_cost",
-    "mean_transfers",
-    "mean_generalised_cost",
-    "min_startTime",
-    "max_startTime",
-    "min_endTime",
-    "max_endTime",
-    "median_duration",
-    "min_duration",
-    "max_duration",
-    "num_nans_duration",
-    "median_travel_distance",
-    "min_travel_distance",
-    "max_travel_distance",
-    "num_nans_travel_distance",
-    "median_walkTime",
-    "min_walkTime",
-    "max_walkTime",
-    "num_nans_walkTime",
-    "median_transitTime",
-    "min_transitTime",
-    "max_transitTime",
-    "num_nans_transitTime",
-    "median_waitingTime",
-    "min_waitingTime",
-    "max_waitingTime",
-    "num_nans_waitingTime",
-    "median_walkDistance",
-    "min_walkDistance",
-    "max_walkDistance",
-    "num_nans_walkDistance",
-    "median_otp_generalised_cost",
-    "min_otp_generalised_cost",
-    "max_otp_generalised_cost",
-    "num_nans_otp_generalised_cost",
-    "median_transfers",
-    "min_transfers",
-    "max_transfers",
-    "num_nans_transfers",
-    "median_generalised_cost",
-    "min_generalised_cost",
-    "max_generalised_cost",
-    "num_nans_generalised_cost",
-    "run_id",
-    "timetable_id",
-    "ID",
-    "zone_type_id",
-]
 
 
 def _camel_to_snake_case(text: str) -> str:
@@ -361,6 +301,12 @@ def main():
     with ctk.LogHelper(
         "", details, log_file=params.output_folder / "scheduler.log"
     ) as helper:
+
+        if _SHUTDOWN:
+            LOG.info(
+                "Shutting down machine upon completition, set %s=FALSE to disable",
+                _SHUTDOWN_ENV_VARIABLE,
+            )
 
         # Add filter to handlers to only include messages from the bodse or otp4gb packages
         pkg_filter = PackageFilter(["__main__", "bodse", "otp4gb", "py.warnings"])
