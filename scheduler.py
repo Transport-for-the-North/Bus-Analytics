@@ -100,6 +100,8 @@ class SchedulerConfig(ctk.BaseConfig):
     otp_parameters: OTPParameters
     zoning_system_parameters: list[ZoningSystemParams]
 
+    timetable_ids: Optional[list[int]] = None
+
 
 @dataclasses.dataclass
 class TimetableData:
@@ -238,7 +240,7 @@ def produce_cost_metrics(
                 time_period=tp.name,
                 mode=mode,
                 modelled_date=otp_config.date,
-                timetable_id=timetable.id
+                timetable_id=timetable.id,
             )
 
             # Find cost metrics file
@@ -318,9 +320,18 @@ def main():
         # - Find recent timetable ID (unadjusted and adjusted)
         # - Check if it has cost metrics results for the timetable ID
         # - Check it has cost metrics results for the specific zone system
-        # SELECT DISTINCT timetable_id, zone_type_id FROM bus_data.cost_metrics
-        timetable_ids = [1, 3]
-        warnings.warn(f"using hardcoded timetable IDs: {timetable_ids}", UserWarning)
+        # SELECT DISTINCT timetable_id, zone_type_id FROM bus_data.run_metadata
+        if params.timetable_ids is None:
+            raise NotImplementedError(
+                "functionality for dynamically finding timetables"
+                " in database, please provide IDs"
+            )
+        timetable_ids = params.timetable_ids
+        warnings.warn(
+            "Dynamic timetable IDs not yet implemented,"
+            f" using timetable IDs: {timetable_ids}",
+            UserWarning,
+        )
 
         pg_db = database.Database(params.database_parameters)
         config.ASSET_DIR.mkdir(exist_ok=True)
