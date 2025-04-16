@@ -39,3 +39,8 @@ zoning_system_parameters:
       max_lon: 1
       min_lat: 1
       max_lat: 1
+
+# IDs of timetables to use, see bus_data.timetables in the database
+timetable_ids:
+  - Scheduled timetable ID
+  - Adjusted timetable ID
