@@ -1,0 +1,11 @@
+metrics_path: Path to the cost metrics CSV file
+zone_system_id: ID of the zone system in the database (foreign_keys.zone_type_list)
+timetable_id: ID of the BODS timetable in the database (bus_data.timetables)
+
+# Parameters for the Postgresql database
+database_parameters:
+  username: User name for database account
+  password: Password for the database account
+  host: IP address / URL for the database
+  database: Name of the database to upload to e.g. prod or test
+  port: 5432

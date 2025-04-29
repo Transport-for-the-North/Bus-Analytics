@@ -100,6 +100,8 @@ class SchedulerConfig(ctk.BaseConfig):
     otp_parameters: OTPParameters
     zoning_system_parameters: list[ZoningSystemParams]
 
+    timetable_ids: Optional[list[int]] = None
+
 
 @dataclasses.dataclass
 class TimetableData:
@@ -202,8 +204,6 @@ def produce_cost_metrics(
     zone_system_params: ZoningSystemParams,
     folder: pathlib.Path,
 ):
-    start = datetime.datetime.now()
-
     zone_filepath = get_zone_system(pg_database, zone_system_params)
 
     # Fill in config with input file names and parameters
@@ -227,18 +227,7 @@ def produce_cost_metrics(
     LOG.info("Saved OTP config: %s", config_path)
 
     LOG.info("Starting OTP processing")
-    try:
-        otp.run_process(folder=folder, save_parameters=False, prepare=False, force=True)
-    except Exception as exc:
-        run_id = pg_database.insert_run_metadata(
-            database.ModelName.OTP4GB,
-            start,
-            otp_config.model_dump_json(),
-            False,
-            error=f"OTP error {exc.__class__.__name__}: {exc}",
-        )
-        LOG.debug("Error running OTP, logged to run metadata table with ID=%s", run_id)
-        raise
+    otp.run_process(folder=folder, save_parameters=False, prepare=False, force=True)
     LOG.info("Done running OTP for %s", folder.name)
 
     for tp in otp_config.time_periods:
@@ -247,14 +236,11 @@ def produce_cost_metrics(
         for modes in otp_config.modes:
             mode = "_".join(i.name for i in modes)
             run_id = pg_database.insert_run_metadata(
-                database.ModelName.OTP4GB,
-                start,
-                otp_config.model_dump_json(),
                 True,
-                output=f'{tp.name} {mode} done. Run folder: "{folder.absolute()}"',
                 time_period=tp.name,
                 mode=mode,
                 modelled_date=otp_config.date,
+                timetable_id=timetable.id,
             )
 
             # Find cost metrics file
@@ -275,7 +261,6 @@ def produce_cost_metrics(
 
             # Add run metadata ID and zone system columns
             df["run_id"] = run_id
-            df["timetable_id"] = timetable.id
             df["zone_type_id"] = zone_system_params.id
             df.columns = [_camel_to_snake_case(i) for i in df.columns]
 
@@ -335,9 +320,18 @@ def main():
         # - Find recent timetable ID (unadjusted and adjusted)
         # - Check if it has cost metrics results for the timetable ID
         # - Check it has cost metrics results for the specific zone system
-        # SELECT DISTINCT timetable_id, zone_type_id FROM bus_data.cost_metrics
-        timetable_ids = [1, 3]
-        warnings.warn(f"using hardcoded timetable IDs: {timetable_ids}", UserWarning)
+        # SELECT DISTINCT timetable_id, zone_type_id FROM bus_data.run_metadata
+        if params.timetable_ids is None:
+            raise NotImplementedError(
+                "functionality for dynamically finding timetables"
+                " in database, please provide IDs"
+            )
+        timetable_ids = params.timetable_ids
+        warnings.warn(
+            "Dynamic timetable IDs not yet implemented,"
+            f" using timetable IDs: {timetable_ids}",
+            UserWarning,
+        )
 
         pg_db = database.Database(params.database_parameters)
         config.ASSET_DIR.mkdir(exist_ok=True)
